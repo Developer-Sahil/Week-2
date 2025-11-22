@@ -17,11 +17,16 @@ IMG_SIZE = 96  # Match training image size
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 
 # Load model
 print("Loading model...")
-model = tf.keras.models.load_model(MODEL_PATH)
-print("Model loaded successfully!")
+try:
+    model = tf.keras.models.load_model(MODEL_PATH)
+    print("Model loaded successfully!")
+except Exception as e:
+    print(f"Error loading model: {e}")
+    model = None
 
 # Class mapping (from training)
 # 0 = O (Organic/Biodegradable), 1 = R (Recyclable/Non-biodegradable)
@@ -71,6 +76,9 @@ def index():
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
+        if model is None:
+            return jsonify({'error': 'Model not loaded. Please contact administrator.'}), 500
+        
         # Check if image is in request
         if 'image' not in request.files:
             return jsonify({'error': 'No image uploaded'}), 400
@@ -106,8 +114,11 @@ def predict():
                 'decompose_time': eco_data['decompose_time']
             }
             
-            # Clean up uploaded file (optional)
-            # os.remove(filepath)
+            # Clean up uploaded file
+            try:
+                os.remove(filepath)
+            except:
+                pass
             
             return jsonify(result), 200
         
@@ -119,7 +130,12 @@ def predict():
 
 @app.route('/health', methods=['GET'])
 def health():
-    return jsonify({'status': 'healthy', 'model_loaded': True}), 200
+    return jsonify({
+        'status': 'healthy',
+        'model_loaded': model is not None
+    }), 200
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # Use environment variable for port (Render sets this)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
