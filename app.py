@@ -13,23 +13,26 @@ CORS(app)
 UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
 MODEL_PATH = 'waste_classifier_model.h5'
-IMG_SIZE = 96  # Match training image size
+IMG_SIZE = 96
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
 # Load model
 print("Loading model...")
+model = None
 try:
-    model = tf.keras.models.load_model(MODEL_PATH)
-    print("Model loaded successfully!")
+    if os.path.exists(MODEL_PATH):
+        model = tf.keras.models.load_model(MODEL_PATH)
+        print("✓ Model loaded successfully!")
+    else:
+        print("⚠ WARNING: Model file not found!")
+        print("Please ensure 'waste_classifier_model.h5' is in the repository")
 except Exception as e:
-    print(f"Error loading model: {e}")
-    model = None
+    print(f"✗ Error loading model: {e}")
 
-# Class mapping (from training)
-# 0 = O (Organic/Biodegradable), 1 = R (Recyclable/Non-biodegradable)
+# Class mapping
 CLASS_NAMES = {
     0: "Biodegradable (Organic)",
     1: "Non-Biodegradable (Recyclable)"
@@ -54,19 +57,11 @@ def allowed_file(filename):
 
 def preprocess_image(image_path):
     """Preprocess image for model prediction"""
-    # Read image using OpenCV
     img = cv2.imread(image_path)
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    
-    # Resize to model input size
     img = cv2.resize(img, (IMG_SIZE, IMG_SIZE))
-    
-    # Normalize pixel values
     img = img.astype('float32') / 255.0
-    
-    # Add batch dimension
     img = np.expand_dims(img, axis=0)
-    
     return img
 
 @app.route('/')
@@ -76,8 +71,11 @@ def index():
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
+        # Check if model is loaded
         if model is None:
-            return jsonify({'error': 'Model not loaded. Please contact administrator.'}), 500
+            return jsonify({
+                'error': 'Model not available. Please contact administrator.'
+            }), 503
         
         # Check if image is in request
         if 'image' not in request.files:
@@ -96,7 +94,7 @@ def predict():
             
             # Preprocess and predict
             img = preprocess_image(filepath)
-            prediction = model.predict(img)
+            prediction = model.predict(img, verbose=0)
             
             # Get class (0 or 1)
             predicted_class = int(prediction[0][0] > 0.5)
@@ -131,11 +129,10 @@ def predict():
 @app.route('/health', methods=['GET'])
 def health():
     return jsonify({
-        'status': 'healthy',
+        'status': 'healthy' if model is not None else 'degraded',
         'model_loaded': model is not None
     }), 200
 
 if __name__ == '__main__':
-    # Use environment variable for port (Render sets this)
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
